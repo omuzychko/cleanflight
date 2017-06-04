@@ -264,6 +264,11 @@
 #define MSP_GPS_CONFIG           132    //out message         GPS configuration
 #define MSP_COMPASS_CONFIG       133    //out message         Compass configuration
 
+#define MSP_STALKER_CONFIG       140    //out message         Get Stalker sensor configuration  
+#define MSP_SET_STALKER_CONFIG   141    //in  message         Set Stalker sensor configuration
+#define MSP_STALKER_DATA_RAW     142    //out message         RAW Stalker sensor data (angles and cartesian locations)
+#define MSP_STALKER_DATA_UAV     143    //out message         UAV Stalker sensor data (azimuth, elevation, etc)
+
 #define MSP_SET_RAW_RC           200    //in message          8 rc chan
 #define MSP_SET_RAW_GPS          201    //in message          fix, numsat, lat, lon, alt, speed
 #define MSP_SET_PID              202    //in message          P I D coeff (9 are used currently)

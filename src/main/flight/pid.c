@@ -45,6 +45,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/navigation.h"
+#include "flight/tracking.h"
 
 #include "sensors/gyro.h"
 #include "sensors/acceleration.h"
@@ -340,6 +341,9 @@ static float pidLevel(int axis, const pidProfile_t *pidProfile, const rollAndPit
     float angle = pidProfile->levelSensitivity * getRcDeflection(axis);
 #ifdef GPS
     angle += GPS_angle[axis];
+#endif
+#ifdef STALKER
+    angle += TRACKING_angle[axis];
 #endif
     angle = constrainf(angle, -pidProfile->levelAngleLimit, pidProfile->levelAngleLimit);
     const float errorAngle = angle - ((attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f);

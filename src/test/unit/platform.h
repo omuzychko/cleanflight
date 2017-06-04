@@ -27,6 +27,7 @@
 #define MAG
 #define BARO
 #define GPS
+#define STALKER
 #define USE_DASHBOARD
 #define TELEMETRY
 #define LED_STRIP

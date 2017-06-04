@@ -106,6 +106,7 @@
 
 #if (FLASH_SIZE > 128)
 #define GPS
+#define STALKER
 #define CMS
 #define TELEMETRY_LTM
 #define TELEMETRY_CRSF

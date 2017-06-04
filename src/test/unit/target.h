@@ -24,6 +24,7 @@
 #define MAG
 #define BARO
 #define GPS
+#define STALKER
 #define USE_DASHBOARD
 #define SERIAL_RX
 #define USE_RX_MSP

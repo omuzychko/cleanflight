@@ -86,6 +86,7 @@
 #include "io/serial.h"
 #include "io/flashfs.h"
 #include "io/gps.h"
+#include "io/stalker.h"
 #include "io/motors.h"
 #include "io/servos.h"
 #include "io/gimbal.h"
@@ -120,6 +121,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/navigation.h"
+#include "flight/tracking.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
 
@@ -500,6 +502,13 @@ void init(void)
     if (feature(FEATURE_GPS)) {
         gpsInit();
         navigationInit();
+    }
+#endif
+
+#ifdef STALKER
+    if (feature(FEATURE_STALKER)) {
+        stalkerInit();
+        trackingInit();
     }
 #endif
 

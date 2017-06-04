@@ -717,7 +717,7 @@ void handleSmartPortTelemetry(void)
                     tmpi += 10;
                 if (FLIGHT_MODE(HORIZON_MODE))
                     tmpi += 20;
-                if (FLIGHT_MODE(UNUSED_MODE))
+                if (FLIGHT_MODE(STALKER_MODE))
                     tmpi += 40;
                 if (FLIGHT_MODE(PASSTHRU_MODE))
                     tmpi += 40;

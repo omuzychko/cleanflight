@@ -56,6 +56,7 @@
 
 #include "io/gimbal.h"
 #include "io/gps.h"
+#include "io/stalker.h"
 #include "io/ledstrip.h"
 #include "io/osd.h"
 #include "io/vtx_rtc6705.h"
@@ -510,6 +511,12 @@ const clivalue_t valueTable[] = {
     { "nav_speed_min",              VAR_UINT16 | MASTER_VALUE, .config.minmax = { 10, 2000 }, PG_NAVIGATION_CONFIG, offsetof(navigationConfig_t, nav_speed_min) },
     { "nav_speed_max",              VAR_UINT16 | MASTER_VALUE, .config.minmax = { 10, 2000 }, PG_NAVIGATION_CONFIG, offsetof(navigationConfig_t, nav_speed_max) },
     { "nav_slew_rate",              VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 100 }, PG_NAVIGATION_CONFIG, offsetof(navigationConfig_t, nav_slew_rate) },
+#endif
+
+// PG_STALKER_CONFIG
+#ifdef STALKER
+    { "stalker_target_distance",    VAR_UINT16 | MASTER_VALUE, .config.minmax = { 2000, 6000 }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_distance) },
+    { "stalker_target_deadband",     VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 500  }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_deadband) },
 #endif
 
 // PG_AIRPLANE_CONFIG

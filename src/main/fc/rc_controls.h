@@ -47,7 +47,7 @@ typedef enum {
     BOXSONAR,
     BOXSERVO1,
     BOXSERVO2,
-    BOXSERVO3,
+    BOXSTALKER,
     BOXBLACKBOX,
     BOXFAILSAFE,
     BOXAIRMODE,

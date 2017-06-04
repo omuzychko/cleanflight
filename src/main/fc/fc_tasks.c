@@ -59,6 +59,7 @@
 #include "io/beeper.h"
 #include "io/dashboard.h"
 #include "io/gps.h"
+#include "io/stalker.h"
 #include "io/ledstrip.h"
 #include "io/osd.h"
 #include "io/osd_slave.h"
@@ -288,6 +289,9 @@ void fcTasksInit(void)
 #ifdef GPS
     setTaskEnabled(TASK_GPS, feature(FEATURE_GPS));
 #endif
+#ifdef STALKER
+    setTaskEnabled(TASK_STALKER, feature(FEATURE_STALKER));
+#endif
 #ifdef MAG
     setTaskEnabled(TASK_COMPASS, sensors(SENSOR_MAG));
 #if defined(USE_SPI) && defined(USE_MAG_AK8963)
@@ -453,6 +457,15 @@ cfTask_t cfTasks[TASK_COUNT] = {
         .taskFunc = gpsUpdate,
         .desiredPeriod = TASK_PERIOD_HZ(100),        // Required to prevent buffer overruns if running at 115200 baud (115 bytes / period < 256 bytes buffer)
         .staticPriority = TASK_PRIORITY_MEDIUM,
+    },
+#endif
+
+#ifdef STALKER
+    [TASK_STALKER] = {
+        .taskName = "STALKER",
+        .taskFunc = stalkerUpdate,
+        .desiredPeriod = TASK_PERIOD_HZ(100),      // 100Hz, actual is 42Hz but to prevent buffer overruns at 115200 baud
+        .staticPriority = TASK_PRIORITY_HIGH,
     },
 #endif
 

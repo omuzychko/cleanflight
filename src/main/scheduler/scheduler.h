@@ -65,6 +65,9 @@ typedef enum {
 #ifdef GPS
     TASK_GPS,
 #endif
+#ifdef STALKER
+    TASK_STALKER,
+#endif
 #ifdef MAG
     TASK_COMPASS,
 #endif

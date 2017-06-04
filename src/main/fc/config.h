@@ -61,6 +61,7 @@ typedef enum {
     FEATURE_ESC_SENSOR = 1 << 27,
     FEATURE_ANTI_GRAVITY = 1 << 28,
     FEATURE_DYNAMIC_FILTER = 1 << 29,
+    FEATURE_STALKER = 1 << 30,
 } features_e;
 
 #define MAX_NAME_LENGTH 16

@@ -66,6 +66,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/navigation.h"
+#include "flight/tracking.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
 
@@ -74,6 +75,7 @@
 #include "io/flashfs.h"
 #include "io/gimbal.h"
 #include "io/gps.h"
+#include "io/stalker.h"
 #include "io/ledstrip.h"
 #include "io/motors.h"
 #include "io/osd.h"
@@ -142,7 +144,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { BOXSONAR, "SONAR", 22 },
     { BOXSERVO1, "SERVO1", 23 },
     { BOXSERVO2, "SERVO2", 24 },
-    { BOXSERVO3, "SERVO3", 25 },
+    { BOXSTALKER, "STALKER", 25 },
     { BOXBLACKBOX, "BLACKBOX", 26 },
     { BOXFAILSAFE, "FAILSAFE", 27 },
     { BOXAIRMODE, "AIR MODE", 28 },
@@ -339,6 +341,12 @@ void initActiveBoxIds(void)
     }
 #endif
 
+#ifdef STALKER
+    if (feature(FEATURE_STALKER)) {
+        BME(BOXSTALKER);
+    }
+#endif
+
 #ifdef SONAR
     if (feature(FEATURE_SONAR)) {
         BME(BOXSONAR);
@@ -394,7 +402,7 @@ void initActiveBoxIds(void)
     if (mixerConfig()->mixerMode == MIXER_CUSTOM_AIRPLANE) {
         BME(BOXSERVO1);
         BME(BOXSERVO2);
-        BME(BOXSERVO3);
+        //BME(BOXSERVO3);
     }
 #endif
 
@@ -432,7 +440,7 @@ static uint32_t packFlightModeFlags(void)
     const uint32_t rcModeCopyMask = BM(BOXHEADADJ) | BM(BOXCAMSTAB) | BM(BOXCAMTRIG) | BM(BOXBEEPERON)
         | BM(BOXLEDMAX) | BM(BOXLEDLOW) | BM(BOXLLIGHTS) | BM(BOXCALIB) | BM(BOXGOV) | BM(BOXOSD)
         | BM(BOXTELEMETRY) | BM(BOXGTUNE) | BM(BOXBLACKBOX) | BM(BOXBLACKBOXERASE) | BM(BOXAIRMODE)
-        | BM(BOXANTIGRAVITY) | BM(BOXFPVANGLEMIX);
+        | BM(BOXANTIGRAVITY) | BM(BOXFPVANGLEMIX) | BM(BOXSTALKER);
     for(unsigned i = 0; i < sizeof(rcModeCopyMask) * 8; i++) {
         if((rcModeCopyMask & BM(i))    // mode copy is enabled
            && IS_RC_MODE_ACTIVE(i)) {    // mode is active
@@ -878,7 +886,7 @@ static bool mspFcProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst, mspPostProcessFn
 #else
         sbufWriteU16(dst, 0);
 #endif
-        sbufWriteU16(dst, sensors(SENSOR_ACC) | sensors(SENSOR_BARO) << 1 | sensors(SENSOR_MAG) << 2 | sensors(SENSOR_GPS) << 3 | sensors(SENSOR_SONAR) << 4);
+        sbufWriteU16(dst, sensors(SENSOR_ACC) | sensors(SENSOR_BARO) << 1 | sensors(SENSOR_MAG) << 2 | sensors(SENSOR_GPS) << 3 | sensors(SENSOR_SONAR) << 4 | sensors(SENSOR_STALKER) << 5);
         sbufWriteU32(dst, packFlightModeFlags());
         sbufWriteU8(dst, getCurrentPidProfileIndex());
         sbufWriteU16(dst, constrain(averageSystemLoadPercent, 0, 100));
@@ -893,7 +901,7 @@ static bool mspFcProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst, mspPostProcessFn
 #else
         sbufWriteU16(dst, 0);
 #endif
-        sbufWriteU16(dst, sensors(SENSOR_ACC) | sensors(SENSOR_BARO) << 1 | sensors(SENSOR_MAG) << 2 | sensors(SENSOR_GPS) << 3 | sensors(SENSOR_SONAR) << 4);
+        sbufWriteU16(dst, sensors(SENSOR_ACC) | sensors(SENSOR_BARO) << 1 | sensors(SENSOR_MAG) << 2 | sensors(SENSOR_GPS) << 3 | sensors(SENSOR_SONAR) << 4 | sensors(SENSOR_STALKER) << 5);
         sbufWriteU32(dst, packFlightModeFlags());
         sbufWriteU8(dst, getCurrentPidProfileIndex());
         sbufWriteU16(dst, constrain(averageSystemLoadPercent, 0, 100));
@@ -1111,6 +1119,21 @@ static bool mspFcProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst, mspPostProcessFn
                sbufWriteU8(dst, GPS_svinfo_quality[i]);
                sbufWriteU8(dst, GPS_svinfo_cno[i]);
            }
+        break;
+#endif
+
+#ifdef STALKER
+    case MSP_STALKER_CONFIG:
+        sbufWriteU16(dst, stalkerConfig()->target_distance);
+        sbufWriteU8(dst, stalkerConfig()->target_deadband);
+        break;
+        
+    case MSP_STALKER_DATA_RAW:
+        sbufWriteData(dst, (void *) &STALKER_TARGET_RAW, sizeof(stalkerTargetRAW_t));
+        break;
+
+    case MSP_STALKER_DATA_UAV:
+        sbufWriteData(dst, (void *) &STALKER_TARGET_UAV, sizeof(stalkerTargetUAV_t));
         break;
 #endif
 
@@ -1547,6 +1570,13 @@ static mspResult_e mspFcProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
         gpsConfigMutable()->sbasMode = sbufReadU8(src);
         gpsConfigMutable()->autoConfig = sbufReadU8(src);
         gpsConfigMutable()->autoBaud = sbufReadU8(src);
+        break;
+#endif
+
+#ifdef STALKER
+    case MSP_SET_STALKER_CONFIG:
+        stalkerConfigMutable()->target_distance = sbufReadU16(src);
+        stalkerConfigMutable()->target_deadband = sbufReadU8(src);
         break;
 #endif
 

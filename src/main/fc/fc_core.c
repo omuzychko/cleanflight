@@ -59,6 +59,7 @@
 #include "io/asyncfatfs/asyncfatfs.h"
 #include "io/beeper.h"
 #include "io/gps.h"
+#include "io/stalker.h"
 #include "io/motors.h"
 #include "io/servos.h"
 #include "io/serial.h"
@@ -76,6 +77,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/navigation.h"
+#include "flight/tracking.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
 
@@ -452,6 +454,12 @@ void processRx(timeUs_t currentTimeUs)
     }
 #endif
 
+#ifdef STALKER
+    if (sensors(SENSOR_STALKER)) {
+        updateTrackingMode();
+    }
+#endif
+
     if (IS_RC_MODE_ACTIVE(BOXPASSTHRU)) {
         ENABLE_FLIGHT_MODE(PASSTHRU_MODE);
     } else {
@@ -536,7 +544,15 @@ static void subTaskMainSubprocesses(timeUs_t currentTimeUs)
         resetYawAxis();
     }
 
-    if (throttleCorrectionConfig()->throttle_correction_value && (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE))) {
+#ifdef STALKER
+    if (sensors(SENSOR_STALKER)) {
+        if (FLIGHT_MODE(STALKER_MODE)) {
+            updateTrackingControls();
+        }
+    }
+#endif
+
+    if (throttleCorrectionConfig()->throttle_correction_value && (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE) || FLIGHT_MODE(STALKER_MODE))) {
         rcCommand[THROTTLE] += calculateThrottleAngleCorrection(throttleCorrectionConfig()->throttle_correction_value);
     }
 
