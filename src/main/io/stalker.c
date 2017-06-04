@@ -202,15 +202,6 @@ void stalkerTurnDown(void) {
     onStalkerNewData();
 }
 
-void stalkerProcessTargetRAW(){
-// TODO: send to MSP if connected
-}
-
-void stalkerProcessTargetUAV(){
-// TODO: push through moving average queues
-}
-
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 static void stalkerDataReceive(uint16_t ch)
@@ -294,14 +285,12 @@ static void stalkerDataReceive(uint16_t ch)
             
             case STALKER_OUT_TARGET_RAW:
                 STALKER_TARGET_RAW = *((stalkerTargetRAW_t *) stalkerStatus.decode_data);
-                if (stalkerStatus.state == STALKER_RECEIVING_DATA)
-                    stalkerProcessTargetRAW();
                 break;
                 
             case STALKER_OUT_TARGET_UAV:
                 STALKER_TARGET_UAV = *((stalkerTargetUAV_t *) stalkerStatus.decode_data);
-                if (stalkerStatus.state == STALKER_RECEIVING_DATA)
-                    stalkerProcessTargetUAV();
+                // notify subscribers
+                onStalkerNewData();
                 break;
                 
             case STALKER_OUT_ACK:
@@ -348,11 +337,11 @@ static void updateStalkerIndicator(timeUs_t currentTimeUs)
     static uint32_t StalkerLEDTime;
 
     if (STALKER_TARGET_UAV.distance == 0) {
-        LED1_OFF;
+        LED0_OFF;
         StalkerLEDTime = 0;
     } else if ((int32_t)(currentTimeUs - StalkerLEDTime) >= 0) {
         StalkerLEDTime = currentTimeUs + STALKER_TARGET_UAV.distance*100;
-        LED1_TOGGLE;
+        LED0_TOGGLE;
     }
 }
 

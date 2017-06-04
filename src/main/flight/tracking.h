@@ -17,9 +17,9 @@
 
 #pragma once
 
-extern int16_t TRACKING_angle[ANGLE_INDEX_COUNT];
+extern float TRACKING_setpoint[FLIGHT_DYNAMICS_INDEX_COUNT];
 
 void trackingInit(void);
-void updateTrackingControls(void);
+void updateTrackingSetpoints(void);
 void updateTrackingMode(void);
 void onStalkerNewData(void);

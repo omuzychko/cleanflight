@@ -53,9 +53,10 @@
 #include "sensors/boardalignment.h"
 #include "sensors/sensors.h"
 
+#define TRACKING_SETPOINT_LIMIT 500.0f
 
 
-int16_t TRACKING_angle[ANGLE_INDEX_COUNT] = { 0, 0 }; 
+float TRACKING_setpoint[FLIGHT_DYNAMICS_INDEX_COUNT] = { 0.0f, 0.0f, 0.0f }; 
 
 typedef struct {
     float output;
@@ -82,30 +83,31 @@ static PID pidPitch     = {0,0,0,0,0};
 static PID pidYaw       = {0,0,0,0,0};
 static PID pidThrottle  = {0,0,0,0,0};
 
+static float setpointRoll;
+static float setpointPitch;
+static float setpointYaw;
+static float setpointThrottle;
+static float rcCommandThrottleAdjustment;
 
-
-static int32_t get_P(int32_t error, PID_PARAM *pid)
+static int32_t get_P(float error, PID_PARAM *pid)
 {
     return (float)error * pid->kP;
 }
 
-static int32_t get_I(int32_t error, float *dt, PID *pid, PID_PARAM *pid_param)
+static int32_t get_I(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->integrator += ((float)error * pid_param->kI) * *dt;
+    pid->integrator += ((float)error * pid_param->kI) * dt;
     pid->integrator = constrain(pid->integrator, -pid_param->maxI, pid_param->maxI);
     return pid->integrator;
 }
 
-static int32_t get_D(int32_t input, float *dt, PID *pid, PID_PARAM *pid_param)
+static int32_t get_D(float input, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->derivative = (input - pid->last_input) / *dt;
+    pid->derivative = (input - pid->last_input) / dt;
 
-    // Low pass filter cut frequency for derivative calculation
-    // Set to  "1 / ( 2 * PI * gps_lpf )
-    float pidFilter = (1.0f / (2.0f * M_PIf * (float)navigationConfig()->gps_lpf));
     // discrete low pass filter, cuts out the
     // high frequency noise that can drive the controller crazy
-    pid->derivative = pid->last_derivative + (*dt / (pidFilter + *dt)) * (pid->derivative - pid->last_derivative);
+    pid->derivative = pid->last_derivative + (pid->derivative - pid->last_derivative);
     // update state
     pid->last_input = input;
     pid->last_derivative = pid->derivative;
@@ -121,7 +123,6 @@ static void reset_PID(PID *pid)
     pid->last_derivative = 0;
 }
 
-
 static void LoadPidParam(pid8_t * pidProfile, PID_PARAM * pidParam, float trimCoefficient, float maxI) {
     pidParam->kP = pidProfile -> P * trimCoefficient;
     pidParam->kI = pidProfile -> I * trimCoefficient;
@@ -131,9 +132,15 @@ static void LoadPidParam(pid8_t * pidProfile, PID_PARAM * pidParam, float trimCo
 
 static void trackingCleanup(void) {
     uint32_t i;
-    for (i = 0; i < ANGLE_INDEX_COUNT; i++) {
-        TRACKING_angle[i] = 0;
+    for (i = 0; i < FLIGHT_DYNAMICS_INDEX_COUNT; i++) {
+        TRACKING_setpoint[i] = 0;
     }
+
+    setpointRoll = 0;
+    setpointPitch = 0;
+    setpointYaw = 0;
+    setpointThrottle = 0;
+    rcCommandThrottleAdjustment = 0;
 
     reset_PID(&pidRoll);
     reset_PID(&pidPitch);
@@ -142,24 +149,33 @@ static void trackingCleanup(void) {
 }
 
 void trackingInit(void) {
-    LoadPidParam(&(currentPidProfile->pid[PID_ROLL]),&pidParamRoll, 1.0f, 30.0f); // 30 deg roll
-    LoadPidParam(&(currentPidProfile->pid[PID_PITCH]),&pidParamPitch, 1.0f, 30.0f); // 30 deg pitch
-    LoadPidParam(&(currentPidProfile->pid[PID_YAW]) ,&pidParamYaw, 1.0f, 0.0f); // 30 deg pitch
+    LoadPidParam(&(currentPidProfile->pid[PID_ROLL]),&pidParamRoll, 1.0f, 300.0f); // 300 deg/sec roll
+    LoadPidParam(&(currentPidProfile->pid[PID_PITCH]),&pidParamPitch, 1.0f, 300.0f); // 300 deg/sec pitch
+    LoadPidParam(&(currentPidProfile->pid[PID_YAW]) ,&pidParamYaw, 0.1f, 300.0f); // 300 deg/sec roll
     LoadPidParam(&(currentPidProfile->pid[PID_ALT]) ,&pidParamThrottle, 1.0f, 0.0f); // 2000 - max Throttle value
+
+    // set D terms for missinf PIDs
+    pidParamYaw.kD  = 70*0.1f;
+
+    setpointRoll = 0;
+    setpointPitch = 0;
+    setpointRoll = 0;
+    setpointThrottle = 0;
+    rcCommandThrottleAdjustment = 0;
 }
 
-void updateTrackingControls(void) {
-// TODO: assign rcCommands and TRACKING_angle from PID controller
-
-    rcCommand[YAW] += constrain(pidYaw.output, PWM_RANGE_MIN, PWM_RANGE_MAX);
-    rcCommand[THROTTLE] = constrain(pidThrottle.output, PWM_RANGE_MIN, PWM_RANGE_MAX);
+void updateTrackingSetpoints(void) {
+    TRACKING_setpoint[ROLL] = setpointRoll;
+    TRACKING_setpoint[PITCH] = setpointPitch;
+    TRACKING_setpoint[YAW] = setpointYaw;
+    rcCommand[THROTTLE] = constrainf(rcCommand[THROTTLE] + rcCommandThrottleAdjustment, PWM_RANGE_MIN, PWM_RANGE_MAX);
 }
 
 void updateTrackingMode(void) {
     if (IS_RC_MODE_ACTIVE(BOXSTALKER)) {
         if (!FLIGHT_MODE(STALKER_MODE)) {
-            pidThrottle.output = rcCommand[THROTTLE];
             ENABLE_FLIGHT_MODE(STALKER_MODE);
+            beeper(BEEPER_ARMED);
         }
     } else {
         if (FLIGHT_MODE(STALKER_MODE)) {
@@ -168,11 +184,47 @@ void updateTrackingMode(void) {
         }
     }   
 }
+static float GetNextSetpoint(float error, float dt, PID *pid, PID_PARAM *pid_param) {
+    return get_P(error, pid_param) + get_I(error, dt, pid, pid_param) + get_D(error, dt, pid, pid_param);
+}
+
+static void CalculateThrottle(float dt){
+    // TODO: Adjust by distance  when possible
+    float errorThrottle = radiansToDegrees(((float)STALKER_TARGET_UAV.elevation) / 1000.0f);
+    float errorThrottleAbs = ABS(errorThrottle);
+    //beeper(BEEPER_ACC_CALIBRATION);
+    if (errorThrottleAbs > 0.1f) {
+        errorThrottleAbs = errorThrottleAbs - 0.1f;
+        errorThrottle = (errorThrottle > 0) ? errorThrottleAbs : -errorThrottleAbs;
+    } else {
+        errorThrottleAbs = 0;
+    }
+
+    setpointThrottle = GetNextSetpoint(errorThrottle, dt, &pidThrottle, &pidParamThrottle);
+    setpointThrottle = constrain(setpointThrottle, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+    rcCommandThrottleAdjustment  += setpointThrottle;
+}
+
+static void CalculateYaw(float dt){
+        float errorYaw = radiansToDegrees(((float)STALKER_TARGET_UAV.azimuth) / 1000.0f);
+        float errorYawAbs = ABS(errorYaw);
+        //beeper(BEEPER_ACC_CALIBRATION);
+        if (errorYawAbs > 0.1f) {
+            errorYawAbs = errorYawAbs - 0.1f;
+            errorYaw = (errorYaw > 0) ? errorYawAbs : -errorYawAbs;
+        } else {
+            errorYaw = 0;
+        }
+
+        setpointYaw = GetNextSetpoint(errorYaw, dt, &pidYaw, &pidParamYaw);
+        setpointYaw = constrain(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+}
 
 void onStalkerNewData(void)
 {
+    const float deltaTime = 1.0f; // 42 Hz is a latest Stalker version framerate
     if (FLIGHT_MODE(STALKER_MODE)){
-            pidThrottle.output = constrain(pidThrottle.output + STALKER_TARGET_UAV.elevation, PWM_RANGE_MIN, PWM_RANGE_MAX);
-            pidThrottle.output = constrain(pidThrottle.output + STALKER_TARGET_UAV.elevation, PWM_RANGE_MIN, PWM_RANGE_MAX);
+        CalculateYaw(deltaTime);
+        CalculateThrottle(deltaTime);
     }
 }

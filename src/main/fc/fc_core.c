@@ -547,7 +547,7 @@ static void subTaskMainSubprocesses(timeUs_t currentTimeUs)
 #ifdef STALKER
     if (sensors(SENSOR_STALKER)) {
         if (FLIGHT_MODE(STALKER_MODE)) {
-            updateTrackingControls();
+            updateTrackingSetpoints();
         }
     }
 #endif
