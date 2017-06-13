@@ -75,6 +75,7 @@
 #include "flight/navigation.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
+#include "flight/tracking.h"
 
 #include "io/beeper.h"
 #include "io/gimbal.h"
@@ -489,6 +490,7 @@ static void setPidProfile(uint8_t pidProfileIndex)
         systemConfigMutable()->pidProfileIndex = pidProfileIndex;
         currentPidProfile = pidProfilesMutable(pidProfileIndex);
         pidInit(currentPidProfile); // re-initialise pid controller to re-initialise filters and config
+        trackingInit(currentPidProfile);
     }
 }
 

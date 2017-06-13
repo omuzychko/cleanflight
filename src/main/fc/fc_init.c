@@ -508,7 +508,7 @@ void init(void)
 #ifdef STALKER
     if (feature(FEATURE_STALKER)) {
         stalkerInit();
-        trackingInit();
+        trackingInit(currentPidProfile);
     }
 #endif
 

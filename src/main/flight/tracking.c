@@ -63,7 +63,7 @@ typedef struct {
     float derivative;
     float integrator;          // integrator value
     float last_derivative;     // last derivative for low-pass filter
-    float last_input;          // last input for derivative
+    float last_error;          // last input for derivative
 } PID;
 
 typedef struct {
@@ -96,20 +96,19 @@ static int32_t get_P(float error, PID_PARAM *pid)
 
 static int32_t get_I(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->integrator += ((float)error * pid_param->kI) * dt;
+    pid->integrator += pid_param->kI * error * dt;
     pid->integrator = constrain(pid->integrator, -pid_param->maxI, pid_param->maxI);
     return pid->integrator;
 }
 
-static int32_t get_D(float input, float dt, PID *pid, PID_PARAM *pid_param)
+static int32_t get_D(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->derivative = (input - pid->last_input) / dt;
+    pid->derivative = (error - pid->last_error) / dt;
 
-    // discrete low pass filter, cuts out the
-    // high frequency noise that can drive the controller crazy
-    pid->derivative = pid->last_derivative + (pid->derivative - pid->last_derivative);
+    // low pass filter for 10 samples
+    pid->derivative = pid->last_derivative + (pid->derivative - pid->last_derivative)/10.0f;
     // update state
-    pid->last_input = input;
+    pid->last_error = error;
     pid->last_derivative = pid->derivative;
     // add in derivative component
     return pid_param->kD * pid->derivative;
@@ -119,14 +118,14 @@ static void reset_PID(PID *pid)
 {
     pid->output = 0;
     pid->integrator = 0;
-    pid->last_input = 0;
+    pid->last_error = 0;
     pid->last_derivative = 0;
 }
 
-static void LoadPidParam(pid8_t * pidProfile, PID_PARAM * pidParam, float trimCoefficient, float maxI) {
-    pidParam->kP = pidProfile -> P * trimCoefficient;
-    pidParam->kI = pidProfile -> I * trimCoefficient;
-    pidParam->kD = pidProfile -> D * trimCoefficient;
+static void LoadPidParam(pid8_t pidProfile, PID_PARAM * pidParam, float trimCoefficient, float maxI) {
+    pidParam->kP = pidProfile.P * trimCoefficient;
+    pidParam->kI = pidProfile.I * trimCoefficient / 10.0f;
+    pidParam->kD = pidProfile.D * trimCoefficient / 100.0f;
     pidParam->maxI = maxI;
 }
 
@@ -148,14 +147,11 @@ static void trackingCleanup(void) {
     reset_PID(&pidThrottle);
 }
 
-void trackingInit(void) {
-    LoadPidParam(&(currentPidProfile->pid[PID_ROLL]),&pidParamRoll, 1.0f, 300.0f); // 300 deg/sec roll
-    LoadPidParam(&(currentPidProfile->pid[PID_PITCH]),&pidParamPitch, 1.0f, 300.0f); // 300 deg/sec pitch
-    LoadPidParam(&(currentPidProfile->pid[PID_YAW]) ,&pidParamYaw, 0.1f, 300.0f); // 300 deg/sec roll
-    LoadPidParam(&(currentPidProfile->pid[PID_ALT]) ,&pidParamThrottle, 1.0f, 0.0f); // 2000 - max Throttle value
-
-    // set D terms for missinf PIDs
-    pidParamYaw.kD  = 70*0.1f;
+void trackingInit(const pidProfile_t *pidProfile) {
+    LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw, 0.05f, 500.0f); 
+    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.05f, 400.0f); 
+    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch, 0.01f, 250.0f); 
+    LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll, 0.005f, 250.0f); 
 
     setpointRoll = 0;
     setpointPitch = 0;
@@ -165,16 +161,24 @@ void trackingInit(void) {
 }
 
 void updateTrackingSetpoints(void) {
-    TRACKING_setpoint[ROLL] = setpointRoll;
-    TRACKING_setpoint[PITCH] = setpointPitch;
-    TRACKING_setpoint[YAW] = setpointYaw;
-    rcCommand[THROTTLE] = constrainf(rcCommand[THROTTLE] + rcCommandThrottleAdjustment, PWM_RANGE_MIN, PWM_RANGE_MAX);
+    const int STICK_DEADBAND = 20;
+
+    TRACKING_setpoint[ROLL]  =  (ABS(rcData[ROLL]  - PWM_RANGE_MIDDLE) < STICK_DEADBAND) ? setpointRoll  : 0;
+    TRACKING_setpoint[PITCH] =  (ABS(rcData[PITCH] - PWM_RANGE_MIDDLE) < STICK_DEADBAND) ? setpointPitch : 0;
+    TRACKING_setpoint[YAW]   =  (ABS(rcData[YAW]   - PWM_RANGE_MIDDLE) < STICK_DEADBAND) ? setpointYaw   : 0;
+
+    // throttle stick should be down
+    // otherwise - user tries to override Stalker from TX
+    if (rcData[THROTTLE] < 2*STICK_DEADBAND){
+        rcCommand[THROTTLE] = constrainf(PWM_RANGE_MIDDLE + rcCommandThrottleAdjustment, PWM_RANGE_MIN, PWM_RANGE_MAX);
+    }
 }
 
 void updateTrackingMode(void) {
     if (IS_RC_MODE_ACTIVE(BOXSTALKER)) {
         if (!FLIGHT_MODE(STALKER_MODE)) {
             ENABLE_FLIGHT_MODE(STALKER_MODE);
+            rcCommandThrottleAdjustment =  rcCommand[THROTTLE] - PWM_RANGE_MIDDLE;
             beeper(BEEPER_ARMED);
         }
     } else {
@@ -190,14 +194,14 @@ static float GetNextSetpoint(float error, float dt, PID *pid, PID_PARAM *pid_par
 
 static void CalculateThrottle(float dt){
     // TODO: Adjust by distance  when possible
-    float errorThrottle = radiansToDegrees(((float)STALKER_TARGET_UAV.elevation) / 1000.0f);
+    float errorThrottle = STALKER_TARGET_UAV.elevation;
     float errorThrottleAbs = ABS(errorThrottle);
     //beeper(BEEPER_ACC_CALIBRATION);
-    if (errorThrottleAbs > 0.1f) {
-        errorThrottleAbs = errorThrottleAbs - 0.1f;
+    if (errorThrottleAbs > 2.0f) {
+        errorThrottleAbs = errorThrottleAbs - 2.0f;
         errorThrottle = (errorThrottle > 0) ? errorThrottleAbs : -errorThrottleAbs;
     } else {
-        errorThrottleAbs = 0;
+        errorThrottle = 0;
     }
 
     setpointThrottle = GetNextSetpoint(errorThrottle, dt, &pidThrottle, &pidParamThrottle);
@@ -206,11 +210,11 @@ static void CalculateThrottle(float dt){
 }
 
 static void CalculateYaw(float dt){
-        float errorYaw = radiansToDegrees(((float)STALKER_TARGET_UAV.azimuth) / 1000.0f);
+        float errorYaw = STALKER_TARGET_UAV.azimuth;
         float errorYawAbs = ABS(errorYaw);
-        //beeper(BEEPER_ACC_CALIBRATION);
-        if (errorYawAbs > 0.1f) {
-            errorYawAbs = errorYawAbs - 0.1f;
+
+        if (errorYawAbs > 2.0f) {
+            errorYawAbs = errorYawAbs - 2.0f;
             errorYaw = (errorYaw > 0) ? errorYawAbs : -errorYawAbs;
         } else {
             errorYaw = 0;

@@ -45,6 +45,10 @@ typedef enum {
     PID_LEVEL,
     PID_MAG,
     PID_VEL,
+    PID_ST_AZM,
+    PID_ST_ELV,
+    PID_ST_DST,
+    PID_ST_HDN,
     PID_ITEM_COUNT
 } pidIndex_e;
 

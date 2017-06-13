@@ -85,7 +85,11 @@ void resetPidProfile(pidProfile_t *pidProfile)
             [PID_NAVR] =  { 25, 33, 83 },   // NAV_P * 10, NAV_I * 100, NAV_D * 1000
             [PID_LEVEL] = { 50, 50, 75 },
             [PID_MAG] =   { 40, 0, 0 },
-            [PID_VEL] =   { 55, 55, 75 }
+            [PID_VEL] =   { 55, 55, 75 },
+            [PID_ST_AZM] = { 50, 50, 50 },
+            [PID_ST_ELV] = { 50, 50, 50 },
+            [PID_ST_DST] = { 50, 50, 50 },
+            [PID_ST_HDN] = { 50, 50, 50 }
         },
 
         .pidSumLimit = PIDSUM_LIMIT,

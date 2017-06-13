@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include "flight/pid.h"
+
 extern float TRACKING_setpoint[FLIGHT_DYNAMICS_INDEX_COUNT];
 
-void trackingInit(void);
+void trackingInit(const pidProfile_t *pidProfile);
 void updateTrackingSetpoints(void);
 void updateTrackingMode(void);
 void onStalkerNewData(void);

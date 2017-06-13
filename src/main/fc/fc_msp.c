@@ -168,7 +168,11 @@ static const char pidnames[] =
     "NavR;"
     "LEVEL;"
     "MAG;"
-    "VEL;";
+    "VEL;"
+    "ST_AZM;"
+    "ST_ELV;"
+    "ST_DST;"
+    "ST_HDN;";
 
 typedef enum {
     MSP_SDCARD_STATE_NOT_PRESENT = 0,
@@ -1490,6 +1494,7 @@ static mspResult_e mspFcProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
             currentPidProfile->pid[i].D = sbufReadU8(src);
         }
         pidInitConfig(currentPidProfile);
+        trackingInit(currentPidProfile);
         break;
 
     case MSP_SET_MODE_RANGE:

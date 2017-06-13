@@ -516,7 +516,19 @@ const clivalue_t valueTable[] = {
 // PG_STALKER_CONFIG
 #ifdef STALKER
     { "stalker_target_distance",    VAR_UINT16 | MASTER_VALUE, .config.minmax = { 2000, 6000 }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_distance) },
-    { "stalker_target_deadband",     VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 500  }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_deadband) },
+    { "stalker_target_deadband",    VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 500  }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_deadband) },
+    { "stalker_azm_p",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].P) },
+    { "stalker_azm_i",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].I) },
+    { "stalker_azm_d",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].D) },
+    { "stalker_elv_p",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_ELV].P) },
+    { "stalker_elv_i",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_ELV].I) },
+    { "stalker_elv_d",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_ELV].D) },
+    { "stalker_dst_p",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_DST].P) },
+    { "stalker_dst_i",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_DST].I) },
+    { "stalker_dst_d",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_DST].D) },
+    { "stalker_hdn_p",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_HDN].P) },
+    { "stalker_hdn_i",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_HDN].I) },
+    { "stalker_hdn_d",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_HDN].D) },
 #endif
 
 // PG_AIRPLANE_CONFIG
