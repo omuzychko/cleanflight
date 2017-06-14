@@ -96,6 +96,7 @@ static float setpointRoll;
 static float setpointPitch;
 static float setpointYaw;
 static float setpointThrottle;
+static bool targetLocked;
 
 static int32_t get_P(float error, PID_PARAM *pid)
 {
@@ -113,7 +114,7 @@ static int32_t get_D(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
     pid->derivative = (error - pid->last_error) / dt;
 
-    // low pass filter for 10 samples
+    // low pass filter for 10 samples (250 ms)
     pid->derivative = pid->last_derivative + (pid->derivative - pid->last_derivative)/10.0f;
     // update state
     pid->last_error = error;
@@ -131,9 +132,9 @@ static void reset_PID(PID *pid)
 }
 
 static void LoadPidParam(pid8_t pidProfile, PID_PARAM * pidParam, float trimCoefficient, float maxI) {
-    pidParam->kP = pidProfile.P * trimCoefficient;
-    pidParam->kI = pidProfile.I * trimCoefficient / 10.0f;
-    pidParam->kD = pidProfile.D * trimCoefficient / 10.0f;
+    pidParam->kP =        trimCoefficient * pidProfile.P;
+    pidParam->kI = 0.1f * trimCoefficient * pidProfile.I;
+    pidParam->kD = 0.1f * trimCoefficient * pidProfile.D;
     pidParam->maxI = maxI;
 }
 
@@ -147,6 +148,7 @@ static void trackingCleanup(void) {
     setpointPitch = 0;
     setpointYaw = 0;
     setpointThrottle = 0;
+    targetLocked = false;
 
     reset_PID(&pidRoll);
     reset_PID(&pidPitch);
@@ -155,9 +157,9 @@ static void trackingCleanup(void) {
 }
 
 void trackingInit(const pidProfile_t *pidProfile) {
-    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.100f, 400.0f); 
+    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.005f, 300.0f); 
     LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw,      0.010f, 500.0f); // with Yaw we deal with mRAD (thausand fraction of radian) 
-    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    1.000f, 300.0f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggresive than Yaw
+    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    0.100f, 300.0f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggressive than Yaw
     LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.001f, 200.0f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
 
     targetDistance =    stalkerConfig() -> target_distance;
@@ -188,6 +190,8 @@ void updateTrackingMode(void) {
     if (IS_RC_MODE_ACTIVE(BOXSTALKER)) {
         if (!FLIGHT_MODE(STALKER_MODE)) {
             ENABLE_FLIGHT_MODE(STALKER_MODE);
+            setpointThrottle =  rcCommand[THROTTLE] - PWM_RANGE_MIDDLE;
+            pidThrottle.integrator = setpointThrottle;
             beeper(BEEPER_ARMED);
         }
     } else {
@@ -235,11 +239,9 @@ static void CalculatePitch(float dt, float targetAngle){
                                 : 0.0f;
     // forward acceleration/speed is a function of thottle mutiplied by SIN of Pitch Angle
     // so we normalize by target distance, and constrain it -60..+60 DEG
-    float errorDistanceNormalized = targetAngle < 140.0f 
-                            ? constrain(errorDistance/targetDistance, -0.8660f,  0.8660f) 
-                            : 0.0;
-
+    float errorDistanceNormalized = constrain(errorDistance/targetDistance, -0.8660f,  0.8660f) ;
     float errorPitch = asinf(errorDistanceNormalized);
+    
     setpointPitch = GetNextSetpoint(errorPitch, dt, &pidPitch, &pidParamPitch);
     setpointPitch = constrain(setpointPitch, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
@@ -268,7 +270,28 @@ void onStalkerNewData(void)
 
         // this value is used to figure out do we have true measurement of distance to target and heading value.
         float targetAngle = sqrtf(STALKER_TARGET_UAV.azimuth*STALKER_TARGET_UAV.azimuth + STALKER_TARGET_UAV.elevation*STALKER_TARGET_UAV.elevation);
+        float reach = sqrtf(STALKER_TARGET_UAV.distance*STALKER_TARGET_UAV.distance + STALKER_TARGET_UAV.altitude*STALKER_TARGET_UAV.altitude);
+        float reachDiff = reach - targetDistance/TRACKING_SENSOR_PITCH_COS; 
         
+        bool isLocked = 
+                // FOV limit on correct Distance and Altitude calculations
+                (targetAngle < 140.0f) 
+                // distance lock when in reasonable range
+                // 0.20 and 0.30 are derived from 140 mRAD Elevation decrease or increase on FIXED Altitude but varying Distance
+                && reachDiff > -0.20*targetDistance 
+                && reachDiff <  0.30*targetDistance;
+
+        if (isLocked) {
+            if (!targetLocked) {
+                beeper(BEEPER_ARMING_GPS_FIX);
+                targetLocked = true;
+            }
+        } else {
+            if (targetLocked) {
+                beeper(BEEPER_DISARMING);
+                targetLocked = false;
+            }
+        }
       
         CalculateThrottle(deltaTime, targetAngle);
         CalculatePitch(deltaTime, targetAngle);
