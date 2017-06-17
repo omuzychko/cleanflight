@@ -157,15 +157,18 @@ static void trackingCleanup(void) {
 }
 
 void trackingInit(const pidProfile_t *pidProfile) {
-    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.005f, 300.0f); 
+    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.010f, 300.0f); 
     LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw,      0.010f, 500.0f); // with Yaw we deal with mRAD (thausand fraction of radian) 
     LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    0.100f, 300.0f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggressive than Yaw
     LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.001f, 200.0f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
 
+    pidParamThrottle.kI*=10.0f;
+    pidParamThrottle.kD*=10.0f;
+
     targetDistance =    stalkerConfig() -> target_distance;
     deadbandDistance =  stalkerConfig() -> target_deadband ;
-    targetAltitude =    stalkerConfig() -> target_distance * TRACKING_SENSOR_PITCH_TAN;
-    deadbandAltitude =  stalkerConfig() -> target_deadband * TRACKING_SENSOR_PITCH_TAN;
+    targetAltitude =    TRACKING_SENSOR_PITCH_TAN * stalkerConfig() -> target_distance;
+    deadbandAltitude =  TRACKING_SENSOR_PITCH_TAN * stalkerConfig() -> target_deadband;
     setpointRoll = 0;
     setpointPitch = 0;
     setpointRoll = 0;
@@ -220,10 +223,9 @@ static void CalculateThrottle(float dt, float targetAngle){
     // 140 mRAD = 8 DEG. x2 = 16 DEG FOV where the distance and altitude is calculated more or less correctly
     // so we use altitude displacement in [mm]
     // otherwise - we assume distance is correct (equal to target one), so we only adjusting the altitude displacement by its angle
-    float errorAlt = targetAngle < 140.0f 
-                        ? (targetAltitude - STALKER_TARGET_UAV.altitude) 
-                        : (targetAltitude - targetDistance * tanf(TRACKING_SENSOR_PITCH_RAD - (float)STALKER_TARGET_UAV.elevation/1000.0f));
-    
+    float errorAlt = //targetAngle < 140.0f ? (targetAltitude - STALKER_TARGET_UAV.altitude) :
+                    (targetAltitude - targetDistance * tanf(TRACKING_SENSOR_PITCH_RAD - 0.001f * STALKER_TARGET_UAV.elevation));
+
     float errorThrottle = ClipDeadband(errorAlt, deadbandAltitude);    
 
     setpointThrottle = GetNextSetpoint(errorThrottle, dt, &pidThrottle, &pidParamThrottle);
@@ -258,7 +260,7 @@ static void CalculateRoll(float dt){
 
 static void CalculateYaw(float dt){
     // this is like +/- 0.6 degree
-    float errorYaw = ClipDeadband(STALKER_TARGET_UAV.azimuth, 10.0f); 
+    float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed) * ClipDeadband(STALKER_TARGET_UAV.azimuth, 10.0f); 
     setpointYaw = GetNextSetpoint(errorYaw, dt, &pidYaw, &pidParamYaw);
     setpointYaw = constrain(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
