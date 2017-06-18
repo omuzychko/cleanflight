@@ -262,7 +262,7 @@ static void CalculateRoll(float dt){
 
 static void CalculateYaw(float dt){
     // this is like +/- 0.6 degree
-    float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed);// * ClipDeadband(STALKER_TARGET_UAV.azimuth, 10.0f); 
+    float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed) * STALKER_TARGET_UAV.azimuth; 
     setpointYaw = GetNextSetpoint(errorYaw, dt, &pidYaw, &pidParamYaw);
     setpointYaw = constrain(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }

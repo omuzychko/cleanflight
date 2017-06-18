@@ -517,7 +517,7 @@ const clivalue_t valueTable[] = {
 #ifdef STALKER
     { "stalker_target_distance",    VAR_UINT16 | MASTER_VALUE, .config.minmax = { 1000, 6000 }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_distance) },
     { "stalker_target_deadband",    VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 500  }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, target_deadband) },
-    { "stalker_throttle_filter",    VAR_UINT8  | MASTER_VALUE, .config.minmax = { 1, 200  }, PG_PID_PROFILE, offsetof(stalkerConfig_t, throttle_filter) },
+    { "stalker_throttle_filter",    VAR_UINT8  | MASTER_VALUE, .config.minmax = { 1, 200  }, PG_STALKER_CONFIG, offsetof(stalkerConfig_t, throttle_filter) },
     { "stalker_azm_p",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].P) },
     { "stalker_azm_i",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].I) },
     { "stalker_azm_d",              VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, pid[PID_ST_AZM].D) },
