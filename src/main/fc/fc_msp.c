@@ -1130,6 +1130,7 @@ static bool mspFcProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst, mspPostProcessFn
     case MSP_STALKER_CONFIG:
         sbufWriteU16(dst, stalkerConfig()->target_distance);
         sbufWriteU8(dst, stalkerConfig()->target_deadband);
+        sbufWriteU8(dst, stalkerConfig()->throttle_filter);
         break;
         
     case MSP_STALKER_DATA_RAW:
@@ -1582,6 +1583,7 @@ static mspResult_e mspFcProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
     case MSP_SET_STALKER_CONFIG:
         stalkerConfigMutable()->target_distance = sbufReadU16(src);
         stalkerConfigMutable()->target_deadband = sbufReadU8(src);
+        stalkerConfigMutable()->throttle_filter = sbufReadU8(src);
         break;
 #endif
 

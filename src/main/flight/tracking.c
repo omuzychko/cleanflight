@@ -62,18 +62,16 @@
 float TRACKING_setpoint[FLIGHT_DYNAMICS_INDEX_COUNT] = { 0.0f, 0.0f, 0.0f }; 
 
 typedef struct {
-    float output;
-    float derivative;
-    float integrator;          // integrator value
-    float last_derivative;     // last derivative for low-pass filter
-    float last_error;          // last input for derivative
+    float integrator;     // integrator value
+    float derivative;     // last derivative calculation
+    float error;          // last input for derivative
 } PID;
 
 typedef struct {
     float kP;
     float kI;
     float kD;
-    float maxI;
+    float fD;
 } PID_PARAM;
 
 static PID_PARAM pidParamRoll;
@@ -81,10 +79,10 @@ static PID_PARAM pidParamPitch;
 static PID_PARAM pidParamYaw;
 static PID_PARAM pidParamThrottle;
 
-static PID pidRoll      = {0,0,0,0,0};
-static PID pidPitch     = {0,0,0,0,0};
-static PID pidYaw       = {0,0,0,0,0};
-static PID pidThrottle  = {0,0,0,0,0};
+static PID pidRoll      = {0,0,0};
+static PID pidPitch     = {0,0,0};
+static PID pidYaw       = {0,0,0};
+static PID pidThrottle  = {0,0,0};
 
 
 static float targetDistance;
@@ -100,42 +98,39 @@ static bool targetLocked;
 
 static int32_t get_P(float error, PID_PARAM *pid)
 {
-    return (float)error * pid->kP;
+    return pid->kP * error;
 }
 
 static int32_t get_I(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->integrator += pid_param->kI * error * dt;
-    pid->integrator = constrain(pid->integrator, -pid_param->maxI, pid_param->maxI);
-    return pid->integrator;
+    pid->integrator += error * dt;
+    return pid_param->kI * pid->integrator;
 }
 
 static int32_t get_D(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
-    pid->derivative = (error - pid->last_error) / dt;
+    float d = (error - pid->error) / dt;
 
     // low pass filter for 10 samples (250 ms)
-    pid->derivative = pid->last_derivative + (pid->derivative - pid->last_derivative)/10.0f;
-    // update state
-    pid->last_error = error;
-    pid->last_derivative = pid->derivative;
+    pid->derivative = pid->derivative + (d - pid->derivative)/pid_param->fD;
+    // remember last error
+    pid->error = error;
     // add in derivative component
     return pid_param->kD * pid->derivative;
 }
 
 static void reset_PID(PID *pid)
 {
-    pid->output = 0;
     pid->integrator = 0;
-    pid->last_error = 0;
-    pid->last_derivative = 0;
+    pid->error = 0;
+    pid->derivative = 0;
 }
 
-static void LoadPidParam(pid8_t pidProfile, PID_PARAM * pidParam, float trimCoefficient, float maxI) {
-    pidParam->kP =        trimCoefficient * pidProfile.P;
-    pidParam->kI = 0.1f * trimCoefficient * pidProfile.I;
-    pidParam->kD = 0.1f * trimCoefficient * pidProfile.D;
-    pidParam->maxI = maxI;
+static void LoadPidParam(pid8_t pidProfile, PID_PARAM * pidParam, float trimCoefficient) {
+    pidParam->kP = trimCoefficient * pidProfile.P;
+    pidParam->kI = trimCoefficient * pidProfile.I;
+    pidParam->kD = trimCoefficient * pidProfile.D;
+    pidParam->fD = 10.0f;
 }
 
 static void trackingCleanup(void) {
@@ -157,13 +152,19 @@ static void trackingCleanup(void) {
 }
 
 void trackingInit(const pidProfile_t *pidProfile) {
-    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 0.010f, 300.0f); 
-    LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw,      0.010f, 500.0f); // with Yaw we deal with mRAD (thausand fraction of radian) 
-    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    0.100f, 300.0f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggressive than Yaw
-    LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.001f, 200.0f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
+    LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 1.000f); 
+    LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw,      0.010f); // with Yaw we deal with mRAD (thausand fraction of radian) 
+    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    0.100f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggressive than Yaw
+    LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.001f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
 
-    pidParamThrottle.kI*=10.0f;
-    pidParamThrottle.kD*=10.0f;
+    pidParamYaw.kI *= 0.1f;
+    pidParamYaw.kD *= 0.1f;
+    
+    // Throttle-specific coefficients
+    pidParamThrottle.kP *= 0.00200f;
+    pidParamThrottle.kI *= 0.00001f;
+    pidParamThrottle.kD *= 0.12000f;
+    pidParamThrottle.fD = stalkerConfig() -> throttle_filter;
 
     targetDistance =    stalkerConfig() -> target_distance;
     deadbandDistance =  stalkerConfig() -> target_deadband ;
@@ -185,7 +186,7 @@ void updateTrackingSetpoints(void) {
     // throttle stick should be down
     // otherwise - user tries to override Stalker from TX
     if (rcData[THROTTLE] < PWM_RANGE_MIN + STICK_DEADBAND){
-        rcCommand[THROTTLE] = constrain(PWM_RANGE_MIDDLE + setpointThrottle, PWM_RANGE_MIN + 100, PWM_RANGE_MAX - 100);
+        rcCommand[THROTTLE] = constrain(PWM_RANGE_MIN + setpointThrottle, PWM_RANGE_MIN + 100, PWM_RANGE_MAX - 100);
     }
 }
 
@@ -193,8 +194,8 @@ void updateTrackingMode(void) {
     if (IS_RC_MODE_ACTIVE(BOXSTALKER)) {
         if (!FLIGHT_MODE(STALKER_MODE)) {
             ENABLE_FLIGHT_MODE(STALKER_MODE);
-            setpointThrottle =  rcCommand[THROTTLE] - PWM_RANGE_MIDDLE;
-            pidThrottle.integrator = setpointThrottle;
+            setpointThrottle =  rcCommand[THROTTLE] - PWM_RANGE_MIN;
+            pidThrottle.integrator = setpointThrottle / pidParamThrottle.kI;
             beeper(BEEPER_ARMED);
         }
     } else {
@@ -220,6 +221,7 @@ static float ClipDeadband(float error, float deadband){
 }
 
 static void CalculateThrottle(float dt, float targetAngle){
+    UNUSED(targetAngle);
     // 140 mRAD = 8 DEG. x2 = 16 DEG FOV where the distance and altitude is calculated more or less correctly
     // so we use altitude displacement in [mm]
     // otherwise - we assume distance is correct (equal to target one), so we only adjusting the altitude displacement by its angle
@@ -229,7 +231,7 @@ static void CalculateThrottle(float dt, float targetAngle){
     float errorThrottle = ClipDeadband(errorAlt, deadbandAltitude);    
 
     setpointThrottle = GetNextSetpoint(errorThrottle, dt, &pidThrottle, &pidParamThrottle);
-    setpointThrottle = constrain(setpointThrottle, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+    setpointThrottle = constrain(setpointThrottle, 0, PWM_RANGE_MAX - PWM_RANGE_MIN);
 }
 
 static void CalculatePitch(float dt, float targetAngle){
@@ -260,7 +262,7 @@ static void CalculateRoll(float dt){
 
 static void CalculateYaw(float dt){
     // this is like +/- 0.6 degree
-    float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed) * ClipDeadband(STALKER_TARGET_UAV.azimuth, 10.0f); 
+    float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed);// * ClipDeadband(STALKER_TARGET_UAV.azimuth, 10.0f); 
     setpointYaw = GetNextSetpoint(errorYaw, dt, &pidYaw, &pidParamYaw);
     setpointYaw = constrain(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
@@ -299,6 +301,5 @@ void onStalkerNewData(void)
         CalculatePitch(deltaTime, targetAngle);
         CalculateRoll(deltaTime);
         CalculateYaw(deltaTime);
-     
     }
 }
