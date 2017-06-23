@@ -58,6 +58,7 @@
 #define TRACKING_SENSOR_PITCH_COS   (0.816496581f)
 #define TRACKING_SENSOR_PITCH_TAN   (0.707106781f)
 #define TRACKING_SENSOR_PITCH_RAD   (0.615479708f)
+#define DEG                         (180.0f/M_PIf)
 
 float TRACKING_setpoint[FLIGHT_DYNAMICS_INDEX_COUNT] = { 0.0f, 0.0f, 0.0f }; 
 
@@ -72,6 +73,8 @@ typedef struct {
     float kI;
     float kD;
     float fD;
+    float iMin;
+    float iMax;
 } PID_PARAM;
 
 static PID_PARAM pidParamRoll;
@@ -89,6 +92,7 @@ static float targetDistance;
 static float targetAltitude;
 static float deadbandDistance;
 static float deadbandAltitude;
+static float defaultThrottleIntegral;
 
 static float setpointRoll;
 static float setpointPitch;
@@ -104,6 +108,7 @@ static int32_t get_P(float error, PID_PARAM *pid)
 static int32_t get_I(float error, float dt, PID *pid, PID_PARAM *pid_param)
 {
     pid->integrator += error * dt;
+    pid->integrator = constrainf(pid->integrator, pid_param -> iMin, pid_param -> iMax);
     return pid_param->kI * pid->integrator;
 }
 
@@ -154,17 +159,34 @@ static void trackingCleanup(void) {
 void trackingInit(const pidProfile_t *pidProfile) {
     LoadPidParam(pidProfile->pid[PID_ST_ELV], &pidParamThrottle, 1.000f); 
     LoadPidParam(pidProfile->pid[PID_ST_AZM], &pidParamYaw,      0.010f); // with Yaw we deal with mRAD (thausand fraction of radian) 
-    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    0.100f); // with Pitch we deal with RAD (not mRAD) and 10 times less aggressive than Yaw
-    LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.001f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
+    LoadPidParam(pidProfile->pid[PID_ST_DST], &pidParamPitch,    5.730f); // with Pitch we deal with RAD (not mRAD)
+    LoadPidParam(pidProfile->pid[PID_ST_HDN], &pidParamRoll,     0.010f); // with Roll, whic is targetHeading control we should be very sluggish. Its very noisy
+
+    pidParamPitch.kI *= 0.1f;
+    pidParamPitch.kD *= 0.1f;
+    pidParamPitch.iMin = -TRACKING_SETPOINT_LIMIT/pidParamPitch.kI;
+    pidParamPitch.iMax =  TRACKING_SETPOINT_LIMIT/pidParamPitch.kI;
+
+    pidParamRoll.kI *= 0.1f;
+    pidParamRoll.kD *= 0.1f;
+    pidParamRoll.iMin = -TRACKING_SETPOINT_LIMIT/pidParamRoll.kI;
+    pidParamRoll.iMax =  TRACKING_SETPOINT_LIMIT/pidParamRoll.kI;
 
     pidParamYaw.kI *= 0.1f;
     pidParamYaw.kD *= 0.1f;
+    pidParamYaw.iMin = -TRACKING_SETPOINT_LIMIT/pidParamYaw.kI;
+    pidParamYaw.iMax =  TRACKING_SETPOINT_LIMIT/pidParamYaw.kI;
+
     
     // Throttle-specific coefficients
+    
+    pidParamThrottle.fD = stalkerConfig() -> throttle_filter;
     pidParamThrottle.kP *= 0.00200f;
     pidParamThrottle.kI *= 0.00001f;
     pidParamThrottle.kD *= 0.12000f;
-    pidParamThrottle.fD = stalkerConfig() -> throttle_filter;
+    pidParamThrottle.iMin = 100.0f/pidParamThrottle.kI;
+    pidParamThrottle.iMax = 1000.0f/pidParamThrottle.kI;
+    defaultThrottleIntegral = pidParamThrottle.kI;
 
     targetDistance =    stalkerConfig() -> target_distance;
     deadbandDistance =  stalkerConfig() -> target_deadband ;
@@ -174,6 +196,7 @@ void trackingInit(const pidProfile_t *pidProfile) {
     setpointPitch = 0;
     setpointRoll = 0;
     setpointThrottle = 0;
+    targetLocked = false;
 }
 
 void updateTrackingSetpoints(void) {
@@ -186,7 +209,7 @@ void updateTrackingSetpoints(void) {
     // throttle stick should be down
     // otherwise - user tries to override Stalker from TX
     if (rcData[THROTTLE] < PWM_RANGE_MIN + STICK_DEADBAND){
-        rcCommand[THROTTLE] = constrain(PWM_RANGE_MIN + setpointThrottle, PWM_RANGE_MIN + 100, PWM_RANGE_MAX - 100);
+        rcCommand[THROTTLE] = constrainf(PWM_RANGE_MIN + setpointThrottle, PWM_RANGE_MIN + 50, PWM_RANGE_MAX - 50);
     }
 }
 
@@ -222,68 +245,83 @@ static float ClipDeadband(float error, float deadband){
 
 static void CalculateThrottle(float dt, float targetAngle){
     UNUSED(targetAngle);
+    static float errorTrackingFilter = 0;
     // 140 mRAD = 8 DEG. x2 = 16 DEG FOV where the distance and altitude is calculated more or less correctly
     // so we use altitude displacement in [mm]
     // otherwise - we assume distance is correct (equal to target one), so we only adjusting the altitude displacement by its angle
     float errorAlt = //targetAngle < 140.0f ? (targetAltitude - STALKER_TARGET_UAV.altitude) :
                     (targetAltitude - targetDistance * tanf(TRACKING_SENSOR_PITCH_RAD - 0.001f * STALKER_TARGET_UAV.elevation));
 
-    float errorThrottle = ClipDeadband(errorAlt, deadbandAltitude);    
+    float errorThrottle = ClipDeadband(errorAlt, deadbandAltitude);  
+
+    // alghorithm for adaptive I-term grows
+    // if big error persists for a long time and doesn't changes much (within 10%) - increase kI 100 times so we get there faster
+    errorTrackingFilter = errorTrackingFilter + (errorThrottle - errorTrackingFilter)/(10.0f*stalkerConfig() -> throttle_filter);
+    if (ABS(errorThrottle) > (targetDistance/3.0f) && ABS((errorTrackingFilter-errorThrottle)/errorThrottle) < 0.10f) {
+        pidThrottle.integrator += (50.0f*errorThrottle); 
+    } else {
+        // reset the filter if target is locked
+        errorTrackingFilter = 0.0f;
+    }
 
     setpointThrottle = GetNextSetpoint(errorThrottle, dt, &pidThrottle, &pidParamThrottle);
-    setpointThrottle = constrain(setpointThrottle, 0, PWM_RANGE_MAX - PWM_RANGE_MIN);
+    setpointThrottle = constrainf(setpointThrottle, 0.0f, PWM_RANGE_MAX - PWM_RANGE_MIN);
 }
 
-static void CalculatePitch(float dt, float targetAngle){
+static void CalculatePitch(float dt, float targetAngle, const rollAndPitchTrims_t * attitudeAngleTrim){
     // 140 mRAD = 8 DEG. x2 = 16 DEG FOV where the distance and altitude is calculated more or less correctly
     // so we use distance displacement in [mm]//
     // otherwise - we set Distance error to 0, letting Yaw and Throttle to correct first.
-    float errorDistance = targetAngle < 140.0f 
+    float errorDistance = (targetAngle < 140.0f && STALKER_TARGET_UAV.distance > (0.5f*targetDistance) && STALKER_TARGET_UAV.distance < (3.0f*targetDistance))
                                 ? ClipDeadband(STALKER_TARGET_UAV.distance - targetDistance, deadbandDistance)
                                 : 0.0f;
     // forward acceleration/speed is a function of thottle mutiplied by SIN of Pitch Angle
     // so we normalize by target distance, and constrain it -60..+60 DEG
-    float errorDistanceNormalized = constrain(errorDistance/targetDistance, -0.8660f,  0.8660f) ;
-    float errorPitch = asinf(errorDistanceNormalized);
-    
-    setpointPitch = GetNextSetpoint(errorPitch, dt, &pidPitch, &pidParamPitch);
-    setpointPitch = constrain(setpointPitch, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+    float errorDistanceNormalized = constrainf(errorDistance/targetDistance, -0.8660f,  0.8660f) ;
+    float errorAngle = asinf(errorDistanceNormalized)*DEG - ((attitude.raw[FD_PITCH] - attitudeAngleTrim->raw[FD_PITCH]) / 10.0f);
+
+    setpointPitch = GetNextSetpoint(errorAngle, dt, &pidPitch, &pidParamPitch);
+    setpointPitch = constrainf(setpointPitch, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
 
 
-static void CalculateRoll(float dt){
+static void CalculateRoll(float dt, bool isLocked, const rollAndPitchTrims_t *attitudeAngleTrim){
     // target heading is very inaccurate
     // PID should be tunned very sluggish
     // and with high deadband 140 mRAD = +/- 8 degrees
-    float errorRoll = ClipDeadband(STALKER_TARGET_UAV.headingAzimuth, 140.0f); 
-    setpointRoll = GetNextSetpoint(errorRoll, dt, &pidRoll, &pidParamRoll);
-    setpointRoll = constrain(setpointRoll, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+    float errorHeading = (isLocked) 
+                        ? ClipDeadband(-STALKER_TARGET_UAV.headingAzimuth/1000.0f, asinf(deadbandDistance/targetDistance))*DEG
+                        : 0.0f; 
+
+    // TODO: 
+    // mix-in Yaw as complimentary input to help manuvering on target sharp turns
+    // mix level should depend on current ongoing speed (e.g. movinf average pitch angle)
+    float errorAngle = errorHeading/10.0f - ((attitude.raw[FD_ROLL] - attitudeAngleTrim->raw[FD_ROLL]) / 10.0f);
+
+    setpointRoll = GetNextSetpoint(errorAngle, dt, &pidRoll, &pidParamRoll);
+    setpointRoll = constrainf(setpointRoll, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
 
 static void CalculateYaw(float dt){
     // this is like +/- 0.6 degree
     float errorYaw = -GET_DIRECTION(rcControlsConfig()->yaw_control_reversed) * STALKER_TARGET_UAV.azimuth; 
     setpointYaw = GetNextSetpoint(errorYaw, dt, &pidYaw, &pidParamYaw);
-    setpointYaw = constrain(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
+    setpointYaw = constrainf(setpointYaw, -TRACKING_SETPOINT_LIMIT, TRACKING_SETPOINT_LIMIT);
 }
 
 void onStalkerNewData(void)
 {
     const float deltaTime = 1.0f; // 42 Hz is a latest Stalker version framerate
     if (FLIGHT_MODE(STALKER_MODE)){
+         const rollAndPitchTrims_t * accTrims = &accelerometerConfig()->accelerometerTrims;
 
         // this value is used to figure out do we have true measurement of distance to target and heading value.
         float targetAngle = sqrtf(STALKER_TARGET_UAV.azimuth*STALKER_TARGET_UAV.azimuth + STALKER_TARGET_UAV.elevation*STALKER_TARGET_UAV.elevation);
-        float reach = sqrtf(STALKER_TARGET_UAV.distance*STALKER_TARGET_UAV.distance + STALKER_TARGET_UAV.altitude*STALKER_TARGET_UAV.altitude);
-        float reachDiff = reach - targetDistance/TRACKING_SENSOR_PITCH_COS; 
         
-        bool isLocked = 
-                // FOV limit on correct Distance and Altitude calculations
-                (targetAngle < 140.0f) 
-                // distance lock when in reasonable range
-                // 0.20 and 0.30 are derived from 140 mRAD Elevation decrease or increase on FIXED Altitude but varying Distance
-                && reachDiff > -0.20*targetDistance 
-                && reachDiff <  0.30*targetDistance;
+        // FOV limit on correct Distance and Altitude calculations
+        // distance lock when in reasonable range
+        // 0.20 and 0.30 are derived from 140 mRAD Elevation decrease or increase on FIXED Altitude but varying Distance
+        bool isLocked = (targetAngle < 100.0f && STALKER_TARGET_UAV.distance > (0.8f*targetDistance) && STALKER_TARGET_UAV.distance <  (1.30f*targetDistance));
 
         if (isLocked) {
             if (!targetLocked) {
@@ -297,9 +335,9 @@ void onStalkerNewData(void)
             }
         }
       
-        CalculateThrottle(deltaTime, targetAngle);
-        CalculatePitch(deltaTime, targetAngle);
-        CalculateRoll(deltaTime);
         CalculateYaw(deltaTime);
+        CalculateThrottle(deltaTime, targetAngle);  
+        CalculatePitch(deltaTime, targetAngle, accTrims);
+        CalculateRoll(deltaTime, isLocked, accTrims);
     }
 }
