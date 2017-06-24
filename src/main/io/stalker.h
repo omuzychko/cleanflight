@@ -51,6 +51,9 @@ typedef struct stalkerConfig_s {
     uint16_t target_distance;
     uint8_t target_deadband;
     uint8_t throttle_filter;
+    uint8_t distance_rate;
+    uint8_t heading_rate;
+    uint8_t rollyaw_ratio;
 } stalkerConfig_t;
 
 extern stalkerTargetRAW_t  STALKER_TARGET_RAW;

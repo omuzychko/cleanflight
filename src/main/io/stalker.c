@@ -41,7 +41,10 @@ PG_REGISTER_WITH_RESET_TEMPLATE(stalkerConfig_t, stalkerConfig, PG_STALKER_CONFI
 PG_RESET_TEMPLATE(stalkerConfig_t, stalkerConfig,
         .target_distance = 2000,
         .target_deadband = 100,
-        .throttle_filter = 4
+        .throttle_filter = 4,
+        .distance_rate = 20,
+        .heading_rate = 20,
+        .rollyaw_ratio = 0
 );
 
 static uint16_t crc_table [256] = {

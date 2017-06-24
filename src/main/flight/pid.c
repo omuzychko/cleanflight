@@ -391,16 +391,14 @@ void pidController(const pidProfile_t *pidProfile, const rollAndPitchTrims_t *an
         if(maxVelocity[axis])
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
 
-
         // Yaw control is GYRO based, direct sticks control is applied to rate PID
         if ((FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE)) && axis != YAW) {
             currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint);
         }
 
         if (FLIGHT_MODE(STALKER_MODE)) {
-            currentPidSetpoint = constrainf(currentPidSetpoint + TRACKING_setpoint[axis], -1998.0, 1998.0); // max 2000 deg/sec
+            currentPidSetpoint = TRACKING_setpoint[axis];
         }
-
 
         if (inCrashRecoveryMode && axis != FD_YAW) {
             // self-level - errorAngle is deviation from horizontal
