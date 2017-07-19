@@ -50,6 +50,8 @@
 #include "sensors/gyro.h"
 #include "sensors/acceleration.h"
 
+#include "rx/rx.h"
+
 uint32_t targetPidLooptime;
 static bool pidStabilisationEnabled;
 
@@ -396,7 +398,7 @@ void pidController(const pidProfile_t *pidProfile, const rollAndPitchTrims_t *an
             currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint);
         }
 
-        if (FLIGHT_MODE(STALKER_MODE)) {
+        if (FLIGHT_MODE(STALKER_MODE) && ABS(rcData[axis] - PWM_RANGE_MIDDLE) < 10) {
             currentPidSetpoint = TRACKING_setpoint[axis];
         }
 
